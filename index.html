@@ -2164,8 +2164,6 @@ const DECKS = [
       29, 31, 125, 35, 38, 41,
       // Trampas (6)
       46, 48, 189, 51, 55, 58,
-      // Extra comunes para llegar a 40
-      44, 135, 56, 60, 102, 120, 26,
     ],
   },
   {
@@ -2216,8 +2214,6 @@ const DECKS = [
       182, 33, 127, 36, 40, 41,
       // Trampas (6)
       141, 50, 143, 53, 146, 151,
-      // Extra para llegar a 40
-      42, 45, 56, 57, 108, 177, 25,
     ],
   },
   {
@@ -2259,7 +2255,7 @@ const DECKS = [
       // Legendarios (2)
       5, 61,
       // Épicos (6)
-      72, 75, 77, 169, 85, 81,
+      72, 75, 77, 169, 70, 81,
       // Raros (10)
       90, 94, 99, 156, 158, 163, 160, 95, 85, 164,
       // Comunes (10)
@@ -2268,8 +2264,6 @@ const DECKS = [
       123, 32, 183, 36, 130, 42,
       // Trampas (6)
       142, 145, 189, 148, 191, 196,
-      // Extra para llegar a 40
-      41, 44, 57, 59, 110, 175, 107,
     ],
   },
 ];
@@ -2297,6 +2291,7 @@ function saveGame() {
     campaignState: CAMPAIGN_STATE,
     dailyState: DAILY_STATE,
     bpState: BP_STATE,
+    customDeck: CUSTOM_DECK,
   };
   try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); } catch(e) {}
 }
@@ -2324,6 +2319,7 @@ function loadGame() {
     if(data.campaignState)        Object.assign(CAMPAIGN_STATE, data.campaignState);
     if(data.dailyState)           Object.assign(DAILY_STATE, data.dailyState);
     if(data.bpState)              Object.assign(BP_STATE, data.bpState);
+    if(Array.isArray(data.customDeck)) CUSTOM_DECK = data.customDeck;
     return true;
   } catch(e) { return false; }
 }
@@ -2649,7 +2645,7 @@ function addBPXP(amount) {
 function claimBPReward(levelIdx, type, auto=false) {
   const key = `${levelIdx}_${type}`;
   if(BP_STATE.claimed[key]) return;
-  if(type==='premium' && !BP_STATE.premium){
+  if(type==='prem' && !BP_STATE.premium){
     showToast('👑 Necesitas el Pase Premium','#ffd700'); return;
   }
   const lv = BP_LEVELS[levelIdx];
@@ -2936,7 +2932,7 @@ function renderBPLevels() {
 
       <!-- Ícono de estado -->
       <div style="font-size:${isSpecial?'20':'16'}px;flex-shrink:0">
-        ${claimed?'✅':canClaim?'🎁':unlocked&&BP_TAB==='premium'&&!isPrem?'🔒':'⬜'}
+        ${claimed?'✅':canClaim?'🎁':unlocked&&BP_TAB==='prem'&&!isPrem?'🔒':'⬜'}
       </div>
 
       <!-- Descripción recompensa -->
@@ -3973,6 +3969,12 @@ function endTurn() {
       const piece = G.board[m.r]?.[m.c]?.piece;
       if(piece) piece.boosted = 0;
     }
+    // id:16 Caballero Lunar → +300 DEF durante el turno rival
+    if(m.card.id===16 && !m._lunarBoosted){
+      m._lunarBoosted=true; m.card.def+=300;
+      const piece = G.board[m.r]?.[m.c]?.piece;
+      if(piece && piece.card) piece.card.def+=300;
+    }
   });
 
   renderBoard();
@@ -4814,11 +4816,9 @@ function combat(fr, fc, tr, tc) {
       const wolfCount = G.p1Mons.filter(m=>m.card.id===24).length - 1;
       atkVal += wolfCount * 100;
     }
-    // id:82 Troll de Montaña → +300 ATK/DEF por turno en campo (máx +900)
-    if(attacker.card.id===82){
-      const bonus = Math.min((attacker._trollTurns||0)*300, 900);
-      atkVal += bonus;
-    }
+    // id:82 Troll de Montaña → el bonus permanente de +150 ATK/DEF por turno
+    // (máx 3 turnos / +450) ya se aplicó directamente sobre attacker.card en
+    // applyTurnEffects(), así que atkVal ya lo incluye — no sumar de nuevo aquí.
     // id:62 Arcángel Caído → +300 ATK a todos aliados (ya sumado al calcular)
     // Aplicar bonus global Arcángel
     const arcangel = G.p1Mons.find(m=>m.card.id===62);
@@ -4839,6 +4839,8 @@ function combat(fr, fc, tr, tc) {
       G.p2Shield=false;
     } else {
       let dmg = atkVal + (attacker._extraDmg||0);
+      attacker._extraDmg = 0;
+      attacker._obsidian = false;
       // id:67 Dragón de Obsidiana → daño directo ignora todo
       G.p2LP = Math.max(0, G.p2LP - dmg);
       spawnDmgFx(tr, tc, dmg, 'p2');
@@ -5025,7 +5027,8 @@ function applyContragolpe(dmg) {
 function spawnFantasmaOnDeath(player, r, c) {
   // Zombie Guerrero (id:14): al destruirse coloca Fantasma Menor
   const fantasma = CARDS.find(c=>c.id===28);
-  if(!fantasma || G.p1Mons.length>=MAX_MONSTERS) return;
+  const monsList = player==='p1' ? G.p1Mons : G.p2Mons;
+  if(!fantasma || monsList.length>=MAX_MONSTERS) return;
   const piece = makeMonsterPiece(player, {...fantasma}, 'def');
   piece.facedown=true;
   G.board[r][c].piece = piece;
@@ -5699,7 +5702,8 @@ function castSpellFromHand(handIdx) {
       let count=0;
       for(const mon of revivable){
         if(G.p1Mons.length>=MAX_MONSTERS) break;
-        for(let dr=-2;dr<=2;dr++) for(let dc=-2;dc<=2;dc++){
+        let placed=false;
+        for(let dr=-2;dr<=2&&!placed;dr++) for(let dc=-2;dc<=2&&!placed;dc++){
           const nr=G.p1Pos.r+dr, nc=G.p1Pos.c+dc;
           if(nr>=0&&nr<BOARD_SIZE&&nc>=0&&nc<BOARD_SIZE&&!G.board[nr][nc].piece){
             const revCard={...mon,atk:Math.floor(mon.atk/2),def:Math.floor(mon.def/2)};
@@ -5707,7 +5711,8 @@ function castSpellFromHand(handIdx) {
             piece.facedown=true;
             G.board[nr][nc].piece=piece;
             G.p1Mons.push({card:revCard,r:nr,c:nc,mode:'def',acted:true});
-            count++; break;
+            G.p1Grave.splice(G.p1Grave.indexOf(mon),1);
+            count++; placed=true;
           }
         }
       }
@@ -5827,9 +5832,9 @@ function castSpellFromHand(handIdx) {
       for(const [dr,dc] of dirs){
         const nr=m.r+dr, nc=m.c+dc;
         if(nr>=0&&nr<BOARD_SIZE&&nc>=0&&nc<BOARD_SIZE&&!G.board[nr][nc].piece){
+          const piece=G.board[m.r][m.c].piece;
           G.board[m.r][m.c].piece=null;
-          const piece=G.board[nr][nc].piece;
-          G.board[nr][nc].piece=G.board[m.r][m.c].piece||makeMonsterPiece('p2',m.card,m.mode);
+          G.board[nr][nc].piece=piece;
           m.r=nr; m.c=nc; break;
         }
       }
@@ -6145,7 +6150,7 @@ function activateFieldCard(fieldEntry, victim, triggerPiece) {
         const nr=fieldEntry.r+dr, nc=fieldEntry.c+dc;
         if(nr<0||nr>=BOARD_SIZE||nc<0||nc>=BOARD_SIZE) return;
         const p=G.board[nr][nc].piece;
-        if(p){
+        if(p && p.type==='monster'){
           if(p.player==='p2') destroyPiece('p2',nr,nc);
           else destroyPiece('p1',nr,nc);
           cnt++;
@@ -6297,10 +6302,31 @@ function applyTurnEffects() {
         setBlog('🧌 TROLL',`+150 ATK/DEF (turno ${m._trollTurns}/3)·Total: ${m.card.atk} ATK`,'bb-ok');
       }
     }
-    // id:16 Caballero Lunar → +300 DEF en turno rival
-    if(m.card.id===16 && !m._lunarBoosted){ m._lunarBoosted=true; m.card.def+=300; const p=G.board[m.r]?.[m.c]?.piece; if(p&&p.card) p.card.def+=300; }
     // id:83 Araña Tejedora → 200 LP al colocar trampa (se hace en tryPlaceCard)
     // id:99 Murciélago Vampiro → recupera LP al atacar (en combat)
+  });
+
+  // Mismos efectos pasivos de turno, pero para monstruos del rival (IA)
+  G.p2Mons.forEach(m=>{
+    // id:3 Rey Lich → drena 300 LP/turno
+    if(m.card.id===3){ G.p1LP=Math.max(0,G.p1LP-300); spawnDmgFx(G.p1Pos.r,G.p1Pos.c,300,'p1'); setBlog('💀 LICH RIVAL','El Rey Lich del rival te drena 300 LP.','bb-atk'); }
+    // id:66 Titán Solar → 200 daño a cada monstruo aliado
+    if(m.card.id===66){ G.p1Mons.forEach(em=>{ spawnDmgFx(em.r,em.c,200,'p1'); }); G.p1LP=Math.max(0,G.p1LP-200*Math.max(1,G.p1Mons.length)); setBlog('☀️ TITÁN SOLAR RIVAL','El Titán Solar rival inflige 200 daño a tus monstruos.','bb-atk'); }
+    // id:73 Lich Menor → 150 LP × no-muertos del rival
+    if(m.card.id===73){ const cnt=G.p2Mons.filter(x=>x.card.monType==='zombie').length; if(cnt>0){ G.p1LP=Math.max(0,G.p1LP-150*cnt); spawnDmgFx(G.p1Pos.r,G.p1Pos.c,150*cnt,'p1'); setBlog('💀 LICH MENOR RIVAL',`${150*cnt} daño (${cnt} no-muertos rivales).`,'bb-atk'); } }
+    // id:91 Dríada del Bosque → +50 LP en hábitat, máx 6 turnos
+    if(m.card.id===91){ const terrain=G.board[m.r]?.[m.c]?.terrain; if(inHabitat(m.card,terrain)&&(m._driadaTurns||0)<6){ m._driadaTurns=(m._driadaTurns||0)+1; G.p2LP=Math.min(4000,G.p2LP+50); } }
+    // id:75 Espíritu del Mar → +50 LP en océano, máx 6 turnos
+    if(m.card.id===75){ const terrain=G.board[m.r]?.[m.c]?.terrain; if(terrain==='ocean'&&(m._espirituTurns||0)<6){ m._espirituTurns=(m._espirituTurns||0)+1; G.p2LP=Math.min(4000,G.p2LP+50); } }
+    // id:82 Troll de Montaña → +150 ATK/DEF por turno, máx 3 turnos (+450)
+    if(m.card.id===82){
+      if((m._trollTurns||0)<3){
+        m._trollTurns=(m._trollTurns||0)+1;
+        m.card.atk+=150; m.card.def+=150;
+        const p=G.board[m.r]?.[m.c]?.piece;
+        if(p&&p.card){ p.card.atk=m.card.atk; p.card.def=m.card.def; }
+      }
+    }
   });
 
   // Restaurar Caballero Lunar
@@ -6409,9 +6435,9 @@ function buildAIActions() {
     actions.push({type:'moveAvatar'});
 
     // Activar magias útiles de la mano
-    const spells = G.p2Hand.map((c,i)=>({c,i})).filter(({c})=>c.type==='spell');
-    spells.forEach(({c,i}) => {
-      if(aiShouldCastSpell(c)) actions.push({type:'castSpell', cardIdx:i});
+    const spells = G.p2Hand.filter(c=>c.type==='spell');
+    spells.forEach(c => {
+      if(aiShouldCastSpell(c)) actions.push({type:'castSpell', card:c});
     });
 
     if(!G.p2NoSummon){
@@ -6421,9 +6447,9 @@ function buildAIActions() {
     G.p2NoSummon = false;
 
     // Colocar trampas cerca del jugador
-    const traps = G.p2Hand.map((c,i)=>({c,i})).filter(({c})=>c.type==='trap');
+    const traps = G.p2Hand.filter(c=>c.type==='trap');
     if(traps.length && G.p2Field.length < MAX_MONSTERS){
-      actions.push({type:'placeTrap', cardIdx: traps[0].i});
+      actions.push({type:'placeTrap', card: traps[0]});
     }
 
     G.p2Mons.forEach(mon => actions.push({type:'moveMon', mon}));
@@ -6436,16 +6462,16 @@ function buildAIActions() {
   actions.push({type:'moveAvatar'});
 
   // 1. Activar magias ofensivas si el jugador está débil
-  G.p2Hand.forEach((c,i) => {
+  G.p2Hand.forEach(c => {
     if(c.type==='spell' && aiShouldCastSpell(c)){
-      actions.push({type:'castSpell', cardIdx:i});
+      actions.push({type:'castSpell', card:c});
     }
   });
 
   // 2. Colocar trampas estratégicamente
   if(!G.p2NoSummon && G.p2Field.length < MAX_MONSTERS){
-    const trapIdx = aiBestTrap();
-    if(trapIdx >= 0) actions.push({type:'placeTrap', cardIdx: trapIdx});
+    const trapCard = aiBestTrap();
+    if(trapCard) actions.push({type:'placeTrap', card: trapCard});
   }
 
   // 3. Invocar el mejor monstruo posible (con sacrificio si necesario)
@@ -6529,11 +6555,11 @@ function aiShouldCastSpell(card) {
 
 // ── Mejor trampa para colocar ────────────────────
 function aiBestTrap() {
-  const traps = G.p2Hand.map((c,i)=>({c,i})).filter(({c})=>c.type==='trap');
-  if(!traps.length) return -1;
+  const traps = G.p2Hand.filter(c=>c.type==='trap');
+  if(!traps.length) return null;
   // Priorizar trampas con mayor daño o efecto poderoso
-  traps.sort((a,b)=>(b.c.dmg||0)-(a.c.dmg||0));
-  return traps[0].i;
+  traps.sort((a,b)=>(b.dmg||0)-(a.dmg||0));
+  return traps[0];
 }
 
 // ── Obtener objetivo de ataque para un monstruo ──
@@ -6566,10 +6592,10 @@ function execAIAction(action) {
     aiSummon(action.data);
 
   } else if(action.type==='castSpell'){
-    aiCastSpell(action.cardIdx);
+    aiCastSpell(action.card);
 
   } else if(action.type==='placeTrap'){
-    aiPlaceTrap(action.cardIdx);
+    aiPlaceTrap(action.card);
 
   } else if(action.type==='moveMon'){
     aiMoveMon(action.mon);
@@ -6637,7 +6663,8 @@ function aiMoveAvatar(){
 }
 
 // ── Invocar monstruo (IA) ─────────────────────────
-function aiSummon({card, i}){
+function aiSummon({card}){
+  if(!card || !G.p2Hand.includes(card)) return;
   const sac = sacRequired(card);
 
   // Elegir qué sacrificar: los más débiles primero
@@ -6667,7 +6694,8 @@ function aiSummon({card, i}){
       piece.facedown = true; // siempre boca abajo
       G.board[nr][nc].piece=piece;
       G.p2Mons.push({card,r:nr,c:nc,mode,acted:sac>0?false:true,frozen:false});
-      G.p2Hand.splice(i,1);
+      const idx = G.p2Hand.indexOf(card);
+      if(idx>=0) G.p2Hand.splice(idx,1);
       setBlog('🎮 IA',sac>0?`¡Rival sacrifica e invoca ${card.name}!`:`Rival invoca carta.`,'bb-info');
       sfx('summon');
       return;
@@ -6772,9 +6800,8 @@ function showRivalCardActivation(card, msg, callback) {
   }, 2500);
 }
 
-function aiCastSpell(cardIdx){
-  const card = G.p2Hand[cardIdx];
-  if(!card || card.type!=='spell') return;
+function aiCastSpell(card){
+  if(!card || card.type!=='spell' || !G.p2Hand.includes(card)) return;
 
   // Preparar mensaje del efecto
   let msg='';
@@ -6832,7 +6859,8 @@ function aiCastSpell(cardIdx){
       sfx('spell');
     }
 
-    G.p2Hand.splice(cardIdx,1);
+    const idx = G.p2Hand.indexOf(card);
+    if(idx>=0) G.p2Hand.splice(idx,1);
     G.p2Grave.push(card);
     setBlog('✨ RIVAL MAGIA', `${card.name}: ${msg}`, 'bb-magic');
     renderBoard(); updateHUD();
@@ -6854,9 +6882,8 @@ function aiCastSpell(cardIdx){
 }
 
 // ── Colocar trampa (IA) ───────────────────────────
-function aiPlaceTrap(cardIdx){
-  const card = G.p2Hand[cardIdx];
-  if(!card || card.type!=='trap') return;
+function aiPlaceTrap(card){
+  if(!card || card.type!=='trap' || !G.p2Hand.includes(card)) return;
   if(G.p2Field.length>=MAX_MONSTERS) return;
 
   // Colocar trampa en casilla estratégica:
@@ -6882,7 +6909,8 @@ function aiPlaceTrap(cardIdx){
   const piece = makeFacedownPiece('p2', card);
   G.board[tr][tc].piece = piece;
   G.p2Field.push({card,r:tr,c:tc,revealed:false});
-  G.p2Hand.splice(cardIdx,1);
+  const idx = G.p2Hand.indexOf(card);
+  if(idx>=0) G.p2Hand.splice(idx,1);
   setBlog('🎮 IA','Rival coloca carta boca abajo.','bb-info');
   sfx('trap');
 }
@@ -6996,7 +7024,7 @@ function aiCombat(fr,fc,tr,tc){
   const atkTerrain=G.board[fr][fc].terrain;
   const defTerrain=G.board[tr][tc].terrain;
 
-  let atkVal=attacker.card.atk+(inHabitat(attacker.card,atkTerrain)?Math.floor(attacker.card.atk*0.2):0);
+  let atkVal=attacker.card.atk+(inHabitat(attacker.card,atkTerrain)?Math.floor(attacker.card.atk*0.2):0)+(attacker.boosted||0);
   let defVal;
 
   if(defender.type==='avatar'){
@@ -7112,6 +7140,16 @@ function endGame(winner){
   if(G.gameOver) return;
   G.gameOver=true;
 
+  // Si el tutorial seguía activo cuando terminó la partida, ciérralo: su
+  // overlay bloquea toda la pantalla y dejaría la pantalla de fin de
+  // partida inaccesible debajo (soft-lock).
+  if(TUT.active){
+    TUT.active = false;
+    if(TUT.animFrame) cancelAnimationFrame(TUT.animFrame);
+    const ov = $('tutorialOverlay');
+    if(ov){ ov.style.display = 'none'; ov.style.pointerEvents = 'none'; }
+  }
+
   stopMusic();
 
   if(winner==='draw'){
@@ -7205,7 +7243,8 @@ function deselectHand(){
 }
 
 function closeModal(id){
-  $(id).classList.remove('show');
+  const el=$(id);
+  if(el) el.classList.remove('show');
   deselectHand();
 }
 
@@ -7975,6 +8014,7 @@ function saveCustomDeck() {
     setTimeout(()=>o.remove(),2500);
     return;
   }
+  saveGame();
   const o=document.createElement('div');
   o.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.9);border:1px solid var(--gold);color:var(--gold2);font-family:\'Cinzel\',serif;font-size:11px;padding:8px 18px;border-radius:16px;z-index:200;pointer-events:none;';
   o.textContent='💾 Mazo guardado!';
@@ -8147,24 +8187,25 @@ function buyPack(packType, cost, currency='gems') {
     for(let i=0;i<2;i++) if(rares.length) drawn.push(rares[Math.floor(Math.random()*rares.length)]);
   }
 
-  // Agregar copias al álbum
-  drawn.forEach(card => {
-    CARD_COPIES[card.id] = (CARD_COPIES[card.id]||0) + 1;
-  });
-
   showPackResult(drawn);
 }
 
 function buyGems(amount) {
-  showToast(`💎 +${amount.toLocaleString()} Gemas (simulado)`, 'var(--magic2)');
+  // TODO(Fase 1 - antes de publicar): esto todavía no está conectado a Google
+  // Play Billing (no hay backend para validar compras reales). Antes solo
+  // mostraba un toast de "éxito" sin acreditar nada, lo cual engañaba al
+  // jugador. Por ahora se avisa honestamente que la compra real aún no está
+  // disponible, en vez de fingir una compra o regalar gemas gratis (que
+  // rompería la economía del juego). Ver recomendaciones del dev.
+  showToast('💳 Compras con dinero real aún no disponibles en esta versión','#ff9900');
 }
 
 function showPackResult(cards) {
-  // Asegurar que las cartas estén guardadas en CARD_COPIES y persistidas
+  // Agregar copias al álbum y persistir antes de mostrar
   cards.forEach(card => {
     CARD_COPIES[card.id] = (CARD_COPIES[card.id]||0) + 1;
   });
-  saveGame(); // guardar antes de mostrar
+  saveGame();
 
   const overlay = document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;';
@@ -8555,6 +8596,7 @@ let TUT = {
 };
 
 function startTutorial() {
+  if(TUT.animFrame) cancelAnimationFrame(TUT.animFrame);
   TUT.active = true;
   TUT.step = 0;
   const ov = $('tutorialOverlay');
@@ -8757,12 +8799,10 @@ function tutEvent(event) {
 }
 
 function skipTutorial() {
-  endTutorial();
-  PLAYER.tutorialDone = true;
-  saveGame();
+  endTutorial(true);
 }
 
-function endTutorial() {
+function endTutorial(skipped=false) {
   TUT.active = false;
   if(TUT.animFrame) cancelAnimationFrame(TUT.animFrame);
   const ov = $('tutorialOverlay');
@@ -8770,8 +8810,12 @@ function endTutorial() {
   ov.style.pointerEvents = 'none';
   PLAYER.tutorialDone = true;
   saveGame();
-  sfx('win');
-  setBlog('🎮 ¡LISTO!','Tutorial completado. ¡Ahora eres un Duelista!','bb-ok');
+  if(skipped){
+    setBlog('⏭ TUTORIAL','Tutorial omitido.','bb-info');
+  } else {
+    sfx('win');
+    setBlog('🎮 ¡LISTO!','Tutorial completado. ¡Ahora eres un Duelista!','bb-ok');
+  }
 }
 
 function checkShowTutorial() {
