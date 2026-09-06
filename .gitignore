@@ -1,0 +1,11 @@
+# Nunca commitear secretos (API keys, tokens)
+.env
+.env.*
+*.key
+
+# Archivos temporales de SO/editor
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
