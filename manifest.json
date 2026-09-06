@@ -1,0 +1,35 @@
+{
+  "name": "Duel Arena Legends",
+  "short_name": "Duel Arena",
+  "description": "El Mundo Es Tu Tablero. Duelos de cartas 7×7 con campaña, ranking, misiones diarias y pase de batalla.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "id": "/index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#06030f",
+  "theme_color": "#06030f",
+  "lang": "es",
+  "dir": "ltr",
+  "categories": ["games", "entertainment"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

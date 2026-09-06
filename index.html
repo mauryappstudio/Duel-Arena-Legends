@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Duel Arena Legends</title>
+<meta name="description" content="Duel Arena Legends — El Mundo Es Tu Tablero. Duelos de cartas 7×7 con campaña, ranking y pase de batalla.">
+<meta name="theme-color" content="#06030f">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Duel Arena">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon-512.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link href="https://fonts.googleapis.com/css2?family=Cinzel+Decorative:wght@700;900&family=Cinzel:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -1741,6 +1750,7 @@ box-shadow:inset 0 0 22px rgba(255,140,0,.12),0 0 18px rgba(255,140,0,.10)!impor
     <div class="ds-htitle">🃏 Mi Mazo</div>
     <div id="dbCount" style="font-family:'Cinzel',serif;font-size:10px;padding:3px 9px;border-radius:9px;background:rgba(212,160,23,.12);border:1px solid var(--gold);color:var(--gold2);">0 / 40</div>
     <button onclick="saveCustomDeck()" style="font-family:'Cinzel',serif;font-size:9px;padding:5px 10px;border-radius:5px;border:1px solid var(--gold);background:rgba(212,160,23,.1);color:var(--gold2);cursor:pointer;">💾</button>
+    <button onclick="playCustomDeck()" style="font-family:'Cinzel',serif;font-size:9px;padding:5px 10px;border-radius:5px;border:1px solid #00cc44;background:rgba(0,200,80,.1);color:#44ff88;cursor:pointer;">▶</button>
   </div>
 
   <!-- Tabs: MI MAZO | COLECCIÓN -->
@@ -1826,7 +1836,39 @@ function goTo(screen) {
   }
   if(screen==='battlepass')    renderBattlePass();
   sfx('menu_click');
+
+  // Historial de navegación — permite que el botón Atrás de Android
+  // (WebView/TWA) navegue entre pantallas en vez de cerrar la app.
+  if(screen==='title') history.replaceState({screen:'title'}, '');
+  else                 history.pushState({screen}, '');
 }
+
+// ── Botón Atrás de Android / navegador ────────────────────────────
+// Cada goTo() (salvo hacia 'title') agrega una entrada al historial, así
+// que Atrás dispara 'popstate' en vez de cerrar la app directamente.
+window.addEventListener('popstate', () => {
+  const activeEl = document.querySelector('.screen.active');
+  const currentScreen = activeEl ? activeEl.id.replace('scr-','') : 'title';
+
+  // Si hay un modal o la pantalla de fin de partida abiertos, Atrás los
+  // cierra primero en vez de cambiar de pantalla.
+  const openModal = document.querySelector('.modal-overlay.show');
+  if(openModal){ history.pushState({screen:currentScreen}, ''); closeModal(openModal.id); return; }
+  const gov = $('govlay');
+  if(gov && gov.classList.contains('show')){ history.pushState({screen:currentScreen}, ''); closeGameOver(); return; }
+
+  if(currentScreen==='battle' && G && !G.gameOver){
+    // Partida en curso: pedir confirmación en vez de salir directo.
+    history.pushState({screen:'battle'}, '');
+    confirmMenu();
+    return;
+  }
+
+  if(currentScreen==='title') return; // pantalla raíz: dejar que Atrás cierre la app
+
+  goTo('title');
+});
+history.replaceState({screen:'title'}, '');
 
 // ─── CONSTANTES DE JUEGO ──────────────────────────
 const MAX_MONSTERS = 5;
@@ -2349,7 +2391,9 @@ let G = {};
 
 function initGame(deckId, arenaId) {
   arenaId = arenaId || PLAYER.currentArena || 'mixed';
-  const deck   = DECKS.find(d=>d.id===deckId) || DECKS[0];
+  const deck   = deckId==='custom'
+    ? {id:'custom', name:'Mazo Personalizado', cardIds:CUSTOM_DECK}
+    : (DECKS.find(d=>d.id===deckId) || DECKS[0]);
   const aiDeck = DECKS.find(d=>d.id!==deckId) || DECKS[1];
 
   // Deep copy de cartas
@@ -3757,7 +3801,35 @@ function renderDeckSelect() {
   const list = $('deckList');
   const starter = PLAYER.starterDeckId;
 
-  list.innerHTML = DECKS.map(deck => {
+  let customHtml = '';
+  if(CUSTOM_DECK.length>=20){
+    const cCards  = CUSTOM_DECK.map(id=>CARDS.find(c=>c.id===id)).filter(Boolean);
+    const cMons   = cCards.filter(c=>c.type==='monster').length;
+    const cSpells = cCards.filter(c=>c.type==='spell').length;
+    const cTraps  = cCards.filter(c=>c.type==='trap').length;
+    customHtml = `
+    <div onclick="startBattle('custom')" style="
+      background:linear-gradient(135deg,#1a0f00,#3d2400);border:2px solid var(--gold);
+      border-radius:14px;padding:12px 14px;margin-bottom:10px;
+      cursor:pointer;display:flex;align-items:center;gap:12px;
+      -webkit-tap-highlight-color:transparent;
+      box-shadow:0 0 18px rgba(212,160,23,.4);">
+      <div style="font-size:36px;flex-shrink:0;filter:drop-shadow(0 2px 8px rgba(0,0,0,.8))">🛠️</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-family:'Cinzel',serif;font-size:14px;font-weight:700;color:#fff;margin-bottom:3px">Mi Mazo Personalizado</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.5);margin-bottom:5px">Creado en el Constructor de Mazos.</div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+          <span style="font-family:'Cinzel',serif;font-size:8px;color:var(--gold2);border:1px solid var(--gold);border-radius:6px;padding:2px 8px;background:rgba(212,160,23,.15)">🛠️ PERSONALIZADO</span>
+          <span style="font-family:'Cinzel',serif;font-size:9px;color:rgba(255,255,255,.3)">⚔${cMons} ✨${cSpells} 🪤${cTraps} · ${CUSTOM_DECK.length}/40</span>
+        </div>
+      </div>
+      <div style="font-family:'Cinzel',serif;font-size:13px;font-weight:700;color:var(--gold);
+        border:1.5px solid var(--gold);border-radius:8px;padding:6px 10px;flex-shrink:0;
+        background:rgba(0,0,0,.3);">⚔</div>
+    </div>`;
+  }
+
+  list.innerHTML = customHtml + DECKS.map(deck => {
     const cards  = deck.cardIds.map(id=>CARDS.find(c=>c.id===id)).filter(Boolean);
     const mons   = cards.filter(c=>c.type==='monster').length;
     const spells = cards.filter(c=>c.type==='spell').length;
@@ -7278,15 +7350,20 @@ function initFXCanvas() {
 }
 
 function resizeFXCanvas() {
-  if(!FX_CANVAS) return;
-  FX_CANVAS.width  = window.innerWidth;
-  FX_CANVAS.height = window.innerHeight;
+  if(!FX_CANVAS || !FX_CTX) return;
+  const dpr = window.devicePixelRatio || 1;
+  FX_CANVAS.width  = Math.round(window.innerWidth*dpr);
+  FX_CANVAS.height = Math.round(window.innerHeight*dpr);
+  // Escala el contexto para que todo el código de dibujo pueda seguir
+  // trabajando en coordenadas CSS (píxeles lógicos) sin cambiar nada más,
+  // mientras el buffer real queda a la resolución nativa de la pantalla.
+  FX_CTX.setTransform(dpr,0,0,dpr,0,0);
 }
 
 function animFX() {
   FX_ANIM = requestAnimationFrame(animFX);
   if(!FX_CTX) return;
-  FX_CTX.clearRect(0,0,FX_CANVAS.width,FX_CANVAS.height);
+  FX_CTX.clearRect(0,0,window.innerWidth,window.innerHeight);
 
   FX_PARTICLES = FX_PARTICLES.filter(p => p.life > 0);
   FX_PARTICLES.forEach(p => {
@@ -8022,6 +8099,15 @@ function saveCustomDeck() {
   setTimeout(()=>o.remove(),2000);
 }
 
+function playCustomDeck() {
+  if(CUSTOM_DECK.length < 20){
+    showToast('⚠️ Necesitas al menos 20 cartas en tu mazo para jugar','#ff7070');
+    return;
+  }
+  saveCustomDeck();
+  startBattle('custom');
+}
+
 // ══════════════════════════════════════════════════
 //  TIENDA
 // ══════════════════════════════════════════════════
@@ -8614,14 +8700,16 @@ function startTutorial() {
 
 function resizeTutCanvas() {
   if(!TUT.canvas) return;
-  TUT.canvas.width  = window.innerWidth;
-  TUT.canvas.height = window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  TUT.canvas.width  = Math.round(window.innerWidth*dpr);
+  TUT.canvas.height = Math.round(window.innerHeight*dpr);
+  if(TUT.ctx) TUT.ctx.setTransform(dpr,0,0,dpr,0,0);
 }
 
 function animTutSpotlight() {
   if(!TUT.active) return;
   const ctx = TUT.ctx;
-  const W = TUT.canvas.width, H = TUT.canvas.height;
+  const W = window.innerWidth, H = window.innerHeight;
   ctx.clearRect(0,0,W,H);
 
   // Fondo oscuro
@@ -8836,10 +8924,14 @@ function initSplash() {
 
   // Partículas flotantes
   const ctx = canvas.getContext('2d');
-  canvas.width=window.innerWidth; canvas.height=window.innerHeight;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = window.innerWidth, cssH = window.innerHeight;
+  canvas.width  = Math.round(cssW*dpr);
+  canvas.height = Math.round(cssH*dpr);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
   const particles=[];
   for(let i=0;i<60;i++) particles.push({
-    x:Math.random()*canvas.width, y:Math.random()*canvas.height,
+    x:Math.random()*cssW, y:Math.random()*cssH,
     r:Math.random()*1.5+0.5, speed:Math.random()*0.5+0.2,
     opacity:Math.random()*0.5+0.1,
     color:Math.random()<0.5?'#d4a017':'#ffffff'
@@ -8847,9 +8939,9 @@ function initSplash() {
   let splashAnim=true;
   const animS=()=>{
     if(!splashAnim) return;
-    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.clearRect(0,0,cssW,cssH);
     particles.forEach(p=>{
-      p.y-=p.speed; if(p.y<-5){p.y=canvas.height+5;p.x=Math.random()*canvas.width;}
+      p.y-=p.speed; if(p.y<-5){p.y=cssH+5;p.x=Math.random()*cssW;}
       ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
       ctx.fillStyle=p.color; ctx.globalAlpha=p.opacity; ctx.fill(); ctx.globalAlpha=1;
     });
@@ -8902,6 +8994,15 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.addEventListener('touchstart', startAudio, {once:true});
   document.addEventListener('click', startAudio, {once:true});
 });
+
+// Registrar Service Worker (requisito de Chrome/Android para poder
+// "instalar" el juego como PWA). Si el juego se sirve desde file:// o un
+// navegador sin soporte, esto simplemente no hace nada.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
