@@ -1293,6 +1293,131 @@ box-shadow:inset 0 0 22px rgba(255,140,0,.12),0 0 18px rgba(255,140,0,.10)!impor
 }
 
 
+/* ══════════════════════════════════════════════════════════════════
+   PASE DE PULIDO VISUAL — solo estilos y feedback, sin tocar lógica,
+   balance ni audio. Tres focos: botones del menú, tablero de batalla,
+   y consistencia/responsive general.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── 1) MENÚ: profundidad + brillo interno + hover/press más suaves ──
+   (.home-btn es la clase que realmente se usa hoy en el menú principal;
+   .mbtn quedó sin uso en el HTML actual, así que el pulido se aplica
+   sobre las clases vivas para que se note en pantalla.) */
+.home-btn{
+  position:relative;
+  overflow:hidden;
+  filter:drop-shadow(0 10px 18px rgba(0,0,0,.4));
+  transition:transform .16s cubic-bezier(.34,1.56,.64,1),
+             filter .2s ease,
+             border-color .2s ease;
+}
+/* Brillo interno tipo "cristal" en la mitad superior del botón */
+.home-btn:before{
+  content:"";
+  position:absolute;
+  inset:0;
+  border-radius:inherit;
+  background:linear-gradient(180deg,rgba(255,255,255,.20),rgba(255,255,255,0) 48%);
+  opacity:.85;
+  pointer-events:none;
+  transition:opacity .2s ease;
+  z-index:0;
+}
+.home-btn > *{position:relative;z-index:1;}
+.home-btn:hover{
+  transform:translateY(-1px);
+  filter:drop-shadow(0 14px 24px rgba(0,0,0,.48)) drop-shadow(0 0 16px rgba(255,180,60,.30));
+}
+.home-btn:hover:before{opacity:1;}
+.home-btn:active{
+  transform:translateY(1px) scale(.97) !important;
+  filter:brightness(1.18) drop-shadow(0 4px 10px rgba(0,0,0,.5)) !important;
+  transition:transform .08s ease,filter .08s ease !important;
+}
+.home-btn:active:before{opacity:.35;}
+
+/* Espaciado consistente entre los botones del panel principal */
+.menu-panel-real{gap:10px !important;}
+
+/* ── 2) Título dorado: brillo animado sutil ── */
+@keyframes dalLogoGlow{
+  0%,100%{filter:drop-shadow(0 0 14px rgba(255,150,40,.36)) drop-shadow(0 0 28px rgba(255,110,0,.20));}
+  50%    {filter:drop-shadow(0 0 22px rgba(255,195,95,.55)) drop-shadow(0 0 42px rgba(255,130,0,.34));}
+}
+#scr-title.home-real .logo-main{
+  animation:dalLogoGlow 3.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce){
+  #scr-title.home-real .logo-main{animation:none;}
+  .home-btn{transition:none;}
+}
+
+/* ── 3) TABLERO: celdas más legibles + terrenos diferenciados ── */
+.cell{
+  box-shadow:inset 0 0 14px rgba(0,0,0,.4),0 0 6px rgba(0,0,0,.24);
+}
+
+/* Acento de color + textura sutil por tipo de terreno (además del
+   degradé base ya existente, que se mantiene). El color del borde
+   ayuda a distinguir terrenos de un vistazo aunque el tablero sea
+   chico en pantallas de celular. */
+.t-prairie{
+  background:
+    repeating-linear-gradient(115deg,rgba(150,255,120,.06) 0 2px,transparent 2px 10px),
+    linear-gradient(135deg,#0d1a03,#1e3806);
+  border-color:rgba(150,255,120,.24) !important;
+}
+.t-forest{
+  background:
+    repeating-linear-gradient(90deg,rgba(60,255,140,.06) 0 2px,transparent 2px 12px),
+    linear-gradient(135deg,#041008,#093014);
+  border-color:rgba(60,220,120,.26) !important;
+}
+.t-mountain{
+  background:
+    repeating-linear-gradient(45deg,rgba(255,255,255,.06) 0 2px,transparent 2px 11px),
+    linear-gradient(135deg,#141414,#2a2a2a);
+  border-color:rgba(215,215,225,.24) !important;
+}
+.t-ocean{
+  background:
+    repeating-linear-gradient(0deg,rgba(90,190,255,.07) 0 2px,transparent 2px 9px),
+    linear-gradient(135deg,#050f1a,#0a2040);
+  border-color:rgba(90,190,255,.3) !important;
+}
+.t-dark{
+  background:
+    radial-gradient(circle at 30% 70%,rgba(160,70,255,.12),transparent 55%),
+    linear-gradient(135deg,#080014,#160028);
+  border-color:rgba(160,80,255,.28) !important;
+}
+.t-volcano{
+  background:
+    radial-gradient(circle at 50% 80%,rgba(255,130,30,.16),transparent 55%),
+    linear-gradient(135deg,#160200,#3a0800);
+  border-color:rgba(255,110,30,.34) !important;
+}
+.t-earth{
+  background:
+    repeating-linear-gradient(0deg,rgba(210,150,70,.07) 0 3px,transparent 3px 13px),
+    linear-gradient(135deg,#160800,#382000);
+  border-color:rgba(210,150,70,.28) !important;
+}
+.t-ice{
+  background:
+    repeating-linear-gradient(60deg,rgba(180,230,255,.08) 0 2px,transparent 2px 10px),
+    linear-gradient(135deg,#050f18,#0a2030);
+  border-color:rgba(180,230,255,.32) !important;
+}
+
+/* Glow más marcado en la celda seleccionada y en los movimientos
+   válidos (y mismo tratamiento en ataque/colocación para consistencia).
+   Van al final para ganarle siempre al acento de color del terreno. */
+.hl-sel{box-shadow:inset 0 0 0 2px var(--gold),0 0 6px var(--gold),0 0 20px 2px rgba(212,160,23,.65) !important;}
+.hl-move{box-shadow:inset 0 0 0 2px var(--green2),0 0 6px var(--green2),0 0 18px 2px rgba(68,255,136,.6) !important;}
+.hl-atk{box-shadow:inset 0 0 0 2px #ff3020,0 0 6px #ff3020,0 0 18px 2px rgba(255,48,32,.6) !important;}
+.hl-place{box-shadow:inset 0 0 0 2px var(--p1g),0 0 6px var(--p1g),0 0 18px 2px rgba(96,200,255,.6) !important;}
+
 </style>
 </head>
 <body>
