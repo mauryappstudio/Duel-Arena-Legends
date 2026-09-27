@@ -1,0 +1,52 @@
+name: Publicar en GitHub Pages
+
+# Al hacer push a main, publica el juego en
+# https://mauryappstudio.github.io/Duel-Arena-Legends/
+#
+# Usa el flujo oficial de GitHub (configure-pages + upload-pages-artifact +
+# deploy-pages), que provisiona el sitio de Pages automáticamente la primera
+# vez que corre — no hace falta tocar nada en Settings → Pages a mano.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Preparar sitio (solo lo necesario para jugar)
+        run: |
+          mkdir -p _site
+          cp index.html manifest.json sw.js _site/
+          cp -r icons _site/icons
+          if [ -d art ]; then cp -r art _site/art; fi
+          touch _site/.nojekyll
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+
+      - name: Subir artefacto
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: '_site'
+
+      - name: Publicar en GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
